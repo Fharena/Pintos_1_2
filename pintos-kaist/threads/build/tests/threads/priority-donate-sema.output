@@ -9,10 +9,10 @@ Boot complete.
 Executing 'priority-donate-sema':
 (priority-donate-sema) begin
 (priority-donate-sema) Main thread finished.
-(priority-donate-sema) 
+(priority-donate-sema) end
 Execution of 'priority-donate-sema' complete.
-Timer: 30 ticks
-Thread: 0 idle ticks, 31 kernel ticks, 0 user ticks
-Console: 500 characters output
+Timer: 27 ticks
+Thread: 0 idle ticks, 28 kernel ticks, 0 user ticks
+Console: 502 characters output
 Keyboard: 0 keys pressed
 Powering off...
