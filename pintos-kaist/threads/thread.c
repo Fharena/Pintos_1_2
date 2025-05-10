@@ -256,7 +256,7 @@ bool list_DECS_priority(const struct list_elem *a,
 	struct thread *threada =list_entry(a,struct thread,elem);
     struct thread *threadb =list_entry(b,struct thread,elem);
 	return threada->priority > threadb->priority;
-	//wake 틱 순으로 오름차순 완료.
+	//중요도 순으로 내림차순 완료.
 }
 void
 thread_unblock (struct thread *t) {
