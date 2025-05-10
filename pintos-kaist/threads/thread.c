@@ -10,6 +10,7 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #include "intrinsic.h"
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -64,6 +65,8 @@ static void init_thread (struct thread *, const char *name, int priority);
 static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
+void thread_sleep(int64_t wake_ticks);
+void thread_wake_up(void);
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -110,7 +113,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
-	list_init (&sleep_list);//
+	list_init (&sleep_list);//슬립리스트 초기화
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -235,6 +238,26 @@ thread_block (void) {
    be important: if the caller had disabled interrupts itself,
    it may expect that it can atomically unblock a thread and
    update other data. */
+
+   /* 차단된(blocked) 상태의 스레드 T를 실행 준비 상태(ready-to-run)로 전환합니다.
+
+   만약 T가 차단된 상태가 아니라면 이는 오류입니다.  
+   (실행 중인 스레드를 준비 상태로 만들고 싶다면 thread_yield()를 사용하세요.)
+
+   이 함수는 현재 실행 중인 스레드를 선점(preempt)하지 않습니다.  
+   이는 중요한데, 호출자가 인터럽트를 직접 비활성화한 경우  
+   스레드를 unblock한 뒤 다른 데이터를 원자적으로 업데이트할 수 있을 것이라 기대할 수 있기 때문입니다.
+*/
+
+
+bool list_DECS_priority(const struct list_elem *a,
+                             const struct list_elem *b,
+                             void *aux){
+	struct thread *threada =list_entry(a,struct thread,elem);
+    struct thread *threadb =list_entry(b,struct thread,elem);
+	return threada->priority > threadb->priority;
+	//wake 틱 순으로 오름차순 완료.
+}
 void
 thread_unblock (struct thread *t) {
 	enum intr_level old_level;
@@ -243,7 +266,7 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_insert_ordered (&ready_list,&t->elem,list_DECS_priority,NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -571,6 +594,17 @@ schedule (void) {
 		   currently used by the stack.
 		   The real destruction logic will be called at the beginning of the
 		   schedule(). */
+		/* 우리가 방금 스위치한(빠져나온) 스레드가 죽는 중이라면,
+		해당 스레드의 struct thread를 파괴한다.
+		이 작업은 반드시 늦은 시점에 수행되어야 한다. 왜냐하면,
+		thread_exit()이 자기 자신을 너무 일찍 정리하면 안 되기 때문이다.
+
+		여기서는 실제로 메모리 해제를 바로 하지 않고,
+		단지 페이지 해제 요청을 큐에 넣기만 한다.
+		왜냐하면 이 시점에는 여전히 그 스택을 사용하고 있기 때문이다.
+
+		실제 스레드 파괴 로직은 이후 schedule()이 시작될 때 수행된다.
+        */
 		if (curr && curr->status == THREAD_DYING && curr != initial_thread) {
 			ASSERT (curr != next);
 			list_push_back (&destruction_req, &curr->elem);
@@ -578,7 +612,7 @@ schedule (void) {
 
 		/* Before switching the thread, we first save the information
 		 * of current running. */
-		thread_launch (next);
+		thread_launch (next);//얘가 문맥전환 주체임
 	}
 }
 
@@ -593,4 +627,51 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+bool list_ASC_wake_ticks(const struct list_elem *a,
+                             const struct list_elem *b,
+                             void *aux){
+	struct thread *threada =list_entry(a,struct thread,elem);
+    struct thread *threadb =list_entry(b,struct thread,elem);
+	return threada->wake_ticks < threadb->wake_ticks;
+	//wake 틱 순으로 오름차순 완료.
+}
+void thread_sleep(int64_t wake_ticks){
+	struct thread *curr = running_thread ();
+	enum intr_level old_level;
+	if(curr != idle_thread){//idle 쓰레드가 아니면
+	//로컬 틱 을 깨우기 위해 저장하고 -> wake_ticks
+	//필요하다면글로벌 틱을 업데이트 
+	old_level =intr_disable ();//인터럽트 꺼야댐
+
+	curr->wake_ticks = wake_ticks;//wake_ticks 넣어줘야댐.
+
+
+	//sleep queue에 넣어야됨(wake_tick 작은순으로 헤드에 오게.->오름차순)
+	
+	list_insert_ordered (&sleep_list,&curr->elem,list_ASC_wake_ticks,NULL);
+	thread_block();//블로킹
+	//인터럽트 다시 켜주고
+	intr_set_level (old_level);
+	}
+//쓰레드 리스트 조작할땐 인터럽트 꺼라.
+	
+}
+
+void
+thread_wake_up(void){
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	while(!list_empty(&sleep_list)){//슬립리스트 안비었으면 계속 돌아야지
+		
+		struct thread *sleep_head =list_entry(list_front(&sleep_list),struct thread,elem);
+		if(sleep_head->wake_ticks <= timer_ticks()){
+			//언블록
+			list_pop_front(&sleep_list);// 리스트에서 빼주고
+			thread_unblock(sleep_head);
+		}
+		else break; //없으면 멈춰야됨.
+	}
+	intr_set_level (old_level);
+
 }
