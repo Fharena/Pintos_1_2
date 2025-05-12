@@ -16,6 +16,9 @@
 #include "userprog/process.h"
 #endif
 
+//작은값 매크로
+#define min(x, y) (x) < (y) ? (x) : (y)
+
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
@@ -52,6 +55,10 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 
+
+//전역 sleep 쓰레드 변수
+
+extern int64_t least_sleep_ticks;
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -650,6 +657,8 @@ void thread_sleep(int64_t wake_ticks){
 	//sleep queue에 넣어야됨(wake_tick 작은순으로 헤드에 오게.->오름차순)
 	
 	list_insert_ordered (&sleep_list,&curr->elem,list_ASC_wake_ticks,NULL);
+    least_sleep_ticks = min(least_sleep_ticks, curr->wake_ticks);
+
 	thread_block();//블로킹
 	//인터럽트 다시 켜주고
 	intr_set_level (old_level);
@@ -662,6 +671,7 @@ void
 thread_wake_up(void){
 	enum intr_level old_level;
 	old_level = intr_disable ();
+	int64_t next_least=INT64_MAX;
 	while(!list_empty(&sleep_list)){//슬립리스트 안비었으면 계속 돌아야지
 		
 		struct thread *sleep_head =list_entry(list_front(&sleep_list),struct thread,elem);
@@ -670,8 +680,12 @@ thread_wake_up(void){
 			list_pop_front(&sleep_list);// 리스트에서 빼주고
 			thread_unblock(sleep_head);
 		}
-		else break; //없으면 멈춰야됨.
+		else {
+            next_least = sleep_head->wake_ticks;
+            break;
+        }
 	}
+	least_sleep_ticks = next_least;
 	intr_set_level (old_level);
 
 }

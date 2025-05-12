@@ -20,6 +20,9 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+/* 전역 최소 슬립틱. */
+int64_t least_sleep_ticks = INT64_MAX; 
+
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
@@ -134,7 +137,10 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	thread_tick ();
 	//커널이 핸들링함.
 	//글로벌틱 체크하고 슬립리스트 확인
-	thread_wake_up();
+	if (ticks >= least_sleep_ticks){
+		thread_wake_up();
+	}
+		
 }
 
 
