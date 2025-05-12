@@ -6,7 +6,7 @@
 
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100
-
+extern int64_t least_sleep_ticks; 
 void timer_init (void);
 void timer_calibrate (void);
 
